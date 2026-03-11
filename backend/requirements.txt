@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pypdf
+# Optional OCR stack for scanned PDFs
+pytesseract
+pdf2image
+openai
+python-dotenv
