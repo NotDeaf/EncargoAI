@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>EncargoAI Extraction Preview</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f8f9fb; color: #1a1a1a; }
+    h1 { margin-bottom: 8px; }
+    .panel { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 16px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input[type="file"] { margin-bottom: 8px; }
+    button { padding: 8px 12px; border: none; background: #0b5fff; color: white; border-radius: 4px; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 8px; font-size: 13px; }
+    th { background: #f1f5f9; text-align: left; }
+    .muted { color: #6b7280; font-size: 12px; }
+    pre { background: #0b1021; color: #e4e7ef; padding: 12px; border-radius: 8px; overflow: auto; max-height: 260px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  </style>
+</head>
+<body>
+  <h1>EncargoAI Extraction Preview</h1>
+  <div class="panel">
+    <label for="fileInput">Upload PDF to <code>http://localhost:8000/upload</code></label>
+    <input id="fileInput" type="file" accept="application/pdf" />
+    <div style="margin-top:8px;">
+      <button id="uploadBtn">Upload &amp; Extract</button>
+      <span id="status" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Document Fields</h3>
+    <div id="docFields"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Items</h3>
+    <div id="items"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Raw JSON</h3>
+    <pre id="rawJson" aria-label="Raw JSON"></pre>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const statusEl = document.getElementById('status');
+    const docFieldsEl = document.getElementById('docFields');
+    const itemsEl = document.getElementById('items');
+    const rawJsonEl = document.getElementById('rawJson');
+
+    function setStatus(text, isError=false) {
+      statusEl.textContent = text;
+      statusEl.style.color = isError ? '#b91c1c' : '#6b7280';
+    }
+
+    function renderFieldTable(fields) {
+      if (!fields || Object.keys(fields).length === 0) return '<div class="muted">No document fields.</div>';
+      let rows = '';
+      for (const [name, obj] of Object.entries(fields)) {
+        rows += `<tr>
+          <td>${name}</td>
+          <td>${escapeHtml(obj?.raw_value)}</td>
+          <td>${escapeHtml(obj?.normalized_value)}</td>
+          <td>${escapeHtml(obj?.unit)}</td>
+          <td>${escapeHtml(obj?.normalized_unit)}</td>
+          <td>${obj?.required_review ? 'true' : 'false'}</td>
+          <td>${escapeHtml(obj?.review_notes)}</td>
+        </tr>`;
+      }
+      return `<table>
+        <thead><tr><th>Field</th><th>Raw</th><th>Normalized</th><th>Unit</th><th>Normalized Unit</th><th>Review?</th><th>Review Notes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    }
+
+    function renderItems(items) {
+      if (!Array.isArray(items) || items.length === 0) {
+        return '<div class="muted">No items.</div>';
+      }
+      return items.map((item, idx) => {
+        const fields = item.fields || {};
+        let rows = '';
+        for (const [name, obj] of Object.entries(fields)) {
+          rows += `<tr>
+            <td>${name}</td>
+            <td>${escapeHtml(obj?.raw_value)}</td>
+            <td>${escapeHtml(obj?.normalized_value)}</td>
+            <td>${escapeHtml(obj?.unit)}</td>
+            <td>${escapeHtml(obj?.normalized_unit)}</td>
+            <td>${obj?.required_review ? 'true' : 'false'}</td>
+            <td>${escapeHtml(obj?.review_notes)}</td>
+          </tr>`;
+        }
+        return `<div class="panel" style="padding:12px; margin:8px 0; box-shadow:none; border:1px solid #e5e7eb;">
+          <div style="font-weight:700; margin-bottom:6px;">Item ${idx + 1}</div>
+          ${rows ? `<table>
+            <thead><tr><th>Field</th><th>Raw</th><th>Normalized</th><th>Unit</th><th>Normalized Unit</th><th>Review?</th><th>Review Notes</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>` : '<div class="muted">No fields.</div>'}
+        </div>`;
+      }).join('');
+    }
+
+    function escapeHtml(val) {
+      if (val === null || val === undefined) return '';
+      return String(val)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    async function upload() {
+      const file = fileInput.files[0];
+      if (!file) {
+        setStatus('Please select a PDF to upload.', true);
+        return;
+      }
+      uploadBtn.disabled = true;
+      setStatus('Uploading and extracting…');
+      docFieldsEl.innerHTML = '';
+      itemsEl.innerHTML = '';
+      rawJsonEl.textContent = '';
+
+      const form = new FormData();
+      form.append('file', file);
+
+      try {
+        const res = await fetch('http://localhost:8000/upload', {
+          method: 'POST',
+          body: form,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Request failed: ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        rawJsonEl.textContent = JSON.stringify(data, null, 2);
+
+        const extraction = data.extraction || {};
+        docFieldsEl.innerHTML = renderFieldTable(extraction.document_fields);
+        itemsEl.innerHTML = renderItems(extraction.items);
+        setStatus('Done.');
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Error uploading.', true);
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    }
+
+    uploadBtn.addEventListener('click', upload);
+  </script>
+</body>
+</html>

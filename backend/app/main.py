@@ -1,13 +1,29 @@
+"""
+Things to do:
+- [] Implement support for multiple file uploads at once (send one at a time to GPT)
+- [] Store Json results in a database (e.g. SQLite) for later retrieval and analysis
+- [] Allow user ability to edit the data extracted by ChatGPT in case of errors
+- [] Store copy of PDF in the cloud
+- [] (Maybe) Allow user to select which variables to extract, or even create their own
+- [] Frontend interface should work on green yellow red tier of confidence values 
+    - It knows what its doing green
+    - (11 x 15 --> No response should be an assumption and yellow with a note)
+    - Couldnt find at all is red
+"""
+
+
+
 import asyncio
-import base64
 import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Tuple
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from functools import lru_cache
 
 try:
     from dotenv import load_dotenv
@@ -38,20 +54,31 @@ except ImportError:  # pragma: no cover - handled at runtime
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+SYSTEM_PROMPT_PATH = Path(__file__).parent / "SystemPrompt.md"
 app = FastAPI(title="EncargoAI Backend")
 
-
-_SYSTEM_INSTRUCTIONS = (
-    "You will be given a procurement PDF (base64). Return ONLY JSON with three fields: "
-    "{"
-    "\"ai_received_pdf\": bool, "
-    "\"ai_can_read_pdf\": bool, "
-    "\"ai_first_words\": string|null"
-    "}. "
-    "ai_first_words must be the first 10 TEXT words you read from the PDF content (space-separated, no base64 or binary). "
-    "If you cannot read text from the PDF, set ai_can_read_pdf=false and ai_first_words=null. "
-    "No prose or extra fields."
+# Allow local HTML page to call the API from another origin/port
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+
+@lru_cache(maxsize=1)
+def _load_system_prompt() -> str:
+    """Load the ChatGPT system prompt from disk."""
+    try:
+        prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
+        if not prompt:
+            raise ValueError("System prompt file is empty.")
+        return prompt
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=f"Missing system prompt file at {SYSTEM_PROMPT_PATH}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load system prompt: {exc}") from exc
 
 
 def _extract_text_from_pdf(file_path: Path) -> Tuple[str, str]:
@@ -94,8 +121,33 @@ def _get_uploaded_path(file_name: str) -> Path:
     return file_path
 
 
+def _coerce_response_text(response: Any) -> str:
+    """Extract text output from the OpenAI responses API."""
+    if hasattr(response, "output_text") and response.output_text:
+        return response.output_text
+
+    output = getattr(response, "output", None)
+    if output and isinstance(output, list):
+        try:
+            first = output[0]
+            content = getattr(first, "content", None) or first.get("content")  # type: ignore[index]
+            if content and isinstance(content, list):
+                piece = content[0]
+                text_obj = getattr(piece, "text", None) or piece.get("text")  # type: ignore[index]
+                if text_obj:
+                    if hasattr(text_obj, "value"):
+                        return text_obj.value  # type: ignore[return-value]
+                    if isinstance(text_obj, dict) and "value" in text_obj:
+                        return text_obj["value"]
+                    if isinstance(text_obj, str):
+                        return text_obj
+        except Exception:
+            pass
+    raise ValueError("Unable to parse response text from OpenAI response.")
+
+
 def _call_chatgpt(file_path: Path, metadata: dict) -> dict:
-    """Send PDF to ChatGPT for extraction."""
+    """Send PDF to OpenAI responses API for extraction."""
     if OpenAI is None:
         raise HTTPException(status_code=500, detail="OpenAI SDK not installed. Install 'openai'.")
     api_key = os.getenv("OPENAI_API_KEY")
@@ -104,29 +156,42 @@ def _call_chatgpt(file_path: Path, metadata: dict) -> dict:
 
     client = OpenAI(api_key=api_key)
 
-    pdf_b64 = base64.b64encode(file_path.read_bytes()).decode("utf-8")
-
     sys_prompt = (
-        f"{_SYSTEM_INSTRUCTIONS}\n"
-        f"PDF size (bytes): {metadata.get('pdf_size_bytes')}\n"
-        "Remember: do not return base64 or binary; ai_first_words must be the first 10 readable text words."
+        f"{_load_system_prompt()}\n"
+        f"PDF size (bytes): {metadata.get('pdf_size_bytes')}"
     )
 
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": f"Original PDF (base64): {pdf_b64}"},
-    ]
+    # Upload PDF as file input to responses API (purpose must be "assistants")
+    try:
+        with open(file_path, "rb") as fh:
+            uploaded = client.files.create(file=fh, purpose="assistants")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to upload PDF to OpenAI: {exc}") from exc
 
     try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            response_format={"type": "json_object"},
+        response = client.responses.create(
+            model="gpt-4.1",
+            input=[
+                {"role": "system", "content": [{"type": "input_text", "text": sys_prompt}]},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Extract procurement data from this PDF and return only JSON matching the schema."},
+                        {"type": "input_file", "file_id": uploaded.id},
+                    ],
+                },
+            ],
         )
-        content = completion.choices[0].message.content
+        content = _coerce_response_text(response)
+        print("AI raw response:\n" + content)
         return json.loads(content)
     except Exception as exc:  # pragma: no cover - network/runtime issues
         raise HTTPException(status_code=502, detail=f"ChatGPT request failed: {exc}") from exc
+    finally:
+        try:
+            client.files.delete(uploaded.id)
+        except Exception:
+            pass
 
 
 @app.post("/upload")
@@ -162,9 +227,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         "filename": file.filename,
         "uploaded_at": timestamp,
         "ocr_worked": bool(text),
-        "ai_received_pdf": bool(results.get("ai_received_pdf")),
-        "ai_can_read_pdf": bool(results.get("ai_can_read_pdf")),
-        "ai_first_words": results.get("ai_first_words"),
+        "extraction": results,
     }
     pretty = json.dumps(payload, indent=2)
     print(pretty)
@@ -193,9 +256,7 @@ async def ocr(file_name: str):
         "filename": file_name,
         "uploaded_at": metadata["uploaded_at"],
         "ocr_worked": bool(text),
-        "ai_received_pdf": bool(results.get("ai_received_pdf")),
-        "ai_can_read_pdf": bool(results.get("ai_can_read_pdf")),
-        "ai_first_words": results.get("ai_first_words"),
+        "extraction": results,
     }
     pretty = json.dumps(payload, indent=2)
     print(pretty)
