@@ -4,76 +4,577 @@
   <meta charset="utf-8" />
   <title>EncargoAI Extraction Preview</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 24px; background: #f8f9fb; color: #1a1a1a; }
-    h1 { margin-bottom: 8px; }
-    .panel { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 16px; }
-    label { display: block; margin-bottom: 8px; font-weight: 600; }
-    input[type="file"] { margin-bottom: 8px; }
-    button { padding: 8px 12px; border: none; background: #0b5fff; color: white; border-radius: 4px; cursor: pointer; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
-    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
-    th, td { border: 1px solid #e5e7eb; padding: 6px 8px; font-size: 13px; }
-    th { background: #f1f5f9; text-align: left; }
-    .muted { color: #6b7280; font-size: 12px; }
-    pre { background: #0b1021; color: #e4e7ef; padding: 12px; border-radius: 8px; overflow: auto; max-height: 260px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+    /* Design tokens (HSL) */
+    :root {
+      --background: 0 0% 100%;
+      --foreground: 206 30% 20%;
+
+      --card: 0 0% 100%;
+      --card-foreground: 206 30% 20%;
+
+      --popover: 0 0% 100%;
+      --popover-foreground: 206 30% 20%;
+
+      --primary: 210 78% 15%;
+      --primary-foreground: 0 0% 100%;
+      --primary-light: 210 78% 22%;
+      --primary-dark: 210 78% 12%;
+
+      --secondary: 216 33% 98%;
+      --secondary-foreground: 206 30% 20%;
+
+      --muted: 216 33% 98%;
+      --muted-foreground: 206 20% 45%;
+
+      --accent: 207 68% 53%;
+      --accent-foreground: 0 0% 100%;
+
+      --success: 145 63% 42%;
+      --success-foreground: 0 0% 100%;
+
+      --warning: 27 87% 62%;
+      --warning-foreground: 0 0% 100%;
+
+      --destructive: 0 84.2% 60.2%;
+      --destructive-foreground: 0 0% 100%;
+
+      --border: 216 20% 90%;
+      --input: 216 20% 90%;
+      --ring: 210 78% 15%;
+
+      --radius: 0.75rem;
+
+      --shadow-soft: 0 4px 20px -4px hsl(210 78% 15% / 0.15);
+      --shadow-elevated: 0 10px 40px -10px hsl(210 78% 15% / 0.25);
+      --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 10% 20%, hsl(210 78% 96%), hsl(210 78% 98%)), hsl(var(--background));
+      color: hsl(var(--foreground));
+      min-height: 100vh;
+    }
+
+    .page {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      width: 80%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      margin-bottom: 24px;
+      gap: 10px;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    h1 {
+      font-size: 28px;
+      letter-spacing: -0.02em;
+      margin: 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      background: hsl(var(--secondary));
+      color: hsl(var(--muted-foreground));
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      width: fit-content;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: hsl(var(--muted));
+      color: hsl(var(--muted-foreground));
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .card {
+      background: hsl(var(--card));
+      color: hsl(var(--card-foreground));
+      border: 1px solid hsl(var(--border));
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 18px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .layout {
+      width: 80%;
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+
+    label {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    input[type="file"].file-input {
+      display: none;
+    }
+
+    .file-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: calc(var(--radius) / 2);
+      border: 1px solid hsl(var(--input));
+      background: hsl(var(--secondary));
+      cursor: pointer;
+      color: hsl(var(--foreground));
+      font-weight: 700;
+      box-shadow: var(--shadow-soft);
+      transition: var(--transition-smooth);
+    }
+
+    .file-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .file-name {
+      display: inline-flex;
+      align-items: center;
+      min-width: 160px;
+      padding: 10px 12px;
+      border-radius: calc(var(--radius) / 2);
+      border: 1px solid hsl(var(--input));
+      background: hsl(var(--card));
+      color: hsl(var(--muted-foreground));
+      font-size: 13px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: calc(var(--radius) / 1.2);
+      background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
+      color: hsl(var(--primary-foreground));
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: var(--transition-smooth);
+      box-shadow: var(--shadow-soft);
+    }
+
+    button:hover {
+      background: linear-gradient(135deg, hsl(var(--primary-light)), hsl(var(--primary)));
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .status {
+      font-size: 13px;
+      color: hsl(var(--muted-foreground));
+      min-height: 18px;
+    }
+
+    .progress-shell {
+      width: 100%;
+      height: 10px;
+      background: hsl(var(--secondary));
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid hsl(var(--border));
+      box-shadow: var(--shadow-soft);
+      margin-top: 10px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
+      transition: width 0.3s ease;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 8px;
+      font-size: 13px;
+      background: hsl(var(--card));
+    }
+
+    th, td {
+      border: 1px solid hsl(var(--border));
+      padding: 8px 10px;
+      vertical-align: top;
+    }
+
+    th {
+      text-align: left;
+      background: hsl(var(--secondary));
+      color: hsl(var(--foreground));
+      font-weight: 700;
+    }
+
+    .w-field { width: 15%; min-width: 15%; max-width: 15%; }
+    .w-raw { width: 10%; min-width: 10%; max-width: 10%; }
+    .w-norm { width: 10%; min-width: 10%; max-width: 10%; }
+    .w-unit { width: 10%; min-width: 10%; max-width: 10%; }
+    .w-nunit { width: 10%; min-width: 10%; max-width: 10%; }
+    .w-notes { width: 55%; min-width: 55%; max-width: 55%; }
+
+    /* Doc table specific sizing */
+    .doc-field {
+      width: 170px;
+      min-width: 170px;
+      max-width: 190px;
+      white-space: nowrap;
+    }
+    .doc-val, .doc-unit {
+      width: 10%;
+      min-width: 110px;
+      white-space: nowrap;
+      word-break: keep-all;
+      padding-left: 10px;
+      padding-right: 10px;
+    }
+    .doc-notes {
+      width: auto;
+      padding-left: 10px;
+      padding-right: 10px;
+    }
+
+    .data-table {
+      table-layout: fixed;
+      width: 100%;
+    }
+
+    .muted { color: hsl(var(--muted-foreground)); font-size: 12px; }
+    .section-title { margin: 0 0 6px; font-size: 16px; letter-spacing: -0.01em; }
+
+    pre {
+      background: hsl(var(--primary));
+      color: hsl(var(--primary-foreground));
+      padding: 14px;
+      border-radius: var(--radius);
+      overflow: auto;
+      max-height: 320px;
+      border: 1px solid hsl(var(--primary-dark));
+      box-shadow: var(--shadow-soft);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .panel-lite {
+      margin-top:20px;
+      background: hsl(var(--secondary));
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      border: 1px solid hsl(var(--border));
+    }
+
+    .item-card {
+      margin-top:20px;
+      border: 1px solid hsl(var(--border));
+      border-radius: calc(var(--radius) / 1.5);
+      padding: 12px;
+      background: hsl(var(--card));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .item-name-input {
+      max-width: 240px;
+      display: inline-block;
+      margin-left: 8px;
+    }
+
+    .field-input, textarea.field-input, select.field-input {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid hsl(var(--input));
+      border-radius: calc(var(--radius) / 3);
+      background: hsl(var(--secondary));
+      font-size: 13px;
+      color: hsl(var(--foreground));
+      box-sizing: border-box;
+    }
+
+    .field-input:focus {
+      outline: 2px solid hsl(var(--ring));
+      background: hsl(var(--card));
+    }
+
+    .row-review {
+      background: hsl(var(--warning) / 0.15);
+    }
+
+    .row-missing {
+      background: hsl(var(--destructive) / 0.12);
+    }
+
+    .row-hover {
+      cursor: pointer;
+    }
+
+    .cell-view {
+      display: block;
+      min-height: 20px;
+    }
+
+    .note-input {
+      min-height: 10px;
+      overflow: hidden;
+      resize: none;
+    }
+
+    .note-preview {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .field-input { display: none; }
+    .editing .field-input,
+    .editing textarea.field-input,
+    .editing select.field-input {
+      display: block;
+    }
+
+    .editing .cell-view {
+      display: none;
+    }
+
+    @media (max-width: 920px) {
+      .layout { width: 100%; }
+      header { width: 100%; }
+    }
   </style>
 </head>
 <body>
-  <h1>EncargoAI Extraction Preview</h1>
-  <div class="panel">
-    <label for="fileInput">Upload PDF to <code>http://localhost:8000/upload</code></label>
-    <input id="fileInput" type="file" accept="application/pdf" />
-    <div style="margin-top:8px;">
-      <button id="uploadBtn">Upload &amp; Extract</button>
-      <span id="status" class="muted"></span>
+  <div class="page">
+    <header>
+      <div class="brand">
+        <div class="eyebrow">EncargoAI - Extraction Preview</div>
+        <h1>Upload, extract, and review your PDF data</h1>
+        <div class="pill">API: http://localhost:8000/upload</div>
+      </div>
+      <div class="pill" id="status"></div>
+    </header>
+
+    <div class="layout">
+      <div class="stack">
+        <div class="card">
+          <div class="section-title">Upload PDF</div>
+          <label for="fileInput">Select a PDF to send to the backend</label>
+          <div class="control-row">
+            <input id="fileInput" class="file-input" type="file" />
+            <button id="uploadBtn">Upload &amp; Extract</button>
+            <button id="loadPrevBtn" type="button">Load Previous</button>
+          </div>
+          <div style="margin-top:8px;">
+            <span id="fileName" class="file-name">No file selected</span>
+          </div>
+          <div class="progress-shell" aria-label="Upload progress">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+          <div class="panel-lite muted">We store a copy of the PDF and persist the extracted JSON in the database.</div>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Document Fields</div>
+          <div id="docFields"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Items</div>
+          <div id="items"></div>
+        </div>
+
+      </div>
     </div>
   </div>
 
-  <div class="panel">
-    <h3>Document Fields</h3>
-    <div id="docFields"></div>
-  </div>
-
-  <div class="panel">
-    <h3>Items</h3>
-    <div id="items"></div>
-  </div>
-
-  <div class="panel">
-    <h3>Raw JSON</h3>
-    <pre id="rawJson" aria-label="Raw JSON"></pre>
-  </div>
-
   <script>
-    const fileInput = document.getElementById('fileInput');
-    const uploadBtn = document.getElementById('uploadBtn');
-    const statusEl = document.getElementById('status');
-    const docFieldsEl = document.getElementById('docFields');
-    const itemsEl = document.getElementById('items');
-    const rawJsonEl = document.getElementById('rawJson');
+    const fileInput = document.getElementById("fileInput");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const loadPrevBtn = document.getElementById("loadPrevBtn");
+    const statusEl = document.getElementById("status");
+    const docFieldsEl = document.getElementById("docFields");
+    const itemsEl = document.getElementById("items");
+    const fileNameEl = document.getElementById("fileName");
+    const progressBar = document.getElementById("progressBar");
 
-    function setStatus(text, isError=false) {
+    let currentDocId = null;
+    let currentExtraction = null;
+    const saveExtraction = debounce(doSaveExtraction, 500);
+
+    async function loadMostRecent() {
+      setStatus('Loading last document...');
+      try {
+        const res = await fetch('http://localhost:8000/documents');
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Request failed: ${res.status} ${text}`);
+        }
+        const docs = await res.json();
+        if (!Array.isArray(docs) || docs.length === 0) {
+          setStatus('No documents found.', true);
+          return;
+        }
+        const doc = docs[0]; // already sorted desc in API
+        currentDocId = doc.id;
+        currentExtraction = doc.extraction || {};
+        docFieldsEl.innerHTML = renderFieldTable(currentExtraction.document_fields);
+        itemsEl.innerHTML = renderItems(currentExtraction.items);
+        setStatus(`Loaded doc #${currentDocId}`);
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Error loading document.', true);
+      }
+    }
+
+    function setStatus(text, isError = false) {
       statusEl.textContent = text;
-      statusEl.style.color = isError ? '#b91c1c' : '#6b7280';
+      statusEl.style.background = isError ? 'hsl(var(--destructive))' : 'hsl(var(--muted))';
+      statusEl.style.color = isError ? 'hsl(var(--destructive-foreground))' : 'hsl(var(--muted-foreground))';
+    }
+
+    function startProgress() {
+      if (!progressBar) return;
+      progressBar.style.width = "0%";
+      const start = Date.now();
+      const stepMs = 300;
+      const maxCrawl = 96.5; // never exceed until completion
+      const timer = setInterval(() => {
+        const elapsed = (Date.now() - start) / 1000; // seconds
+        let pct;
+        if (elapsed <= 60) {
+          // first minute to 70%
+          pct = (elapsed / 60) * 70;
+        } else if (elapsed <= 120) {
+          // next minute 70% -> 90%
+          pct = 70 + ((elapsed - 60) / 60) * 20;
+        } else {
+          // slow crawl from 90% up to maxCrawl
+          const crawl = Math.min(maxCrawl - 90, (elapsed - 120) * 0.02); // 0.02% per second (~1% per 50s)
+          pct = 90 + crawl;
+        }
+        pct = Math.min(maxCrawl, pct);
+        progressBar.style.width = `${pct}%`;
+      }, stepMs);
+      return {
+        complete: () => {
+          clearInterval(timer);
+          progressBar.style.width = "100%";
+        },
+      };
+    }
+
+    function debounce(fn, delay) {
+      let t;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    function inputEl(value, path, type = "text") {
+      const safe = escapeHtml(value ?? "");
+      return `<input class="field-input" data-path="${path}" data-type="${type}" value="${safe}" />`;
+    }
+
+    function selectBool(value, path) {
+      const v = value === true ? "true" : "false";
+      return `<select class="field-input" data-path="${path}" data-type="bool">
+        <option value="false" ${v === "false" ? "selected" : ""}>false</option>
+        <option value="true" ${v === "true" ? "selected" : ""}>true</option>
+      </select>`;
+    }
+
+    function textareaEl(value, path) {
+      const safe = escapeHtml(value ?? "");
+      return `<textarea class="field-input note-input" data-path="${path}" data-note="true" rows="1">${safe}</textarea>`;
+    }
+
+    function cellView(value, isNote = false) {
+      const raw = value === null || value === undefined ? "" : String(value);
+      const display = isNote && raw.length > 140 ? raw.slice(0, 140) + "…" : raw;
+      const safe = escapeHtml(display);
+      const cls = isNote ? "cell-view note-preview" : "cell-view";
+      return `<div class="${cls}">${safe}</div>`;
     }
 
     function renderFieldTable(fields) {
       if (!fields || Object.keys(fields).length === 0) return '<div class="muted">No document fields.</div>';
       let rows = '';
       for (const [name, obj] of Object.entries(fields)) {
-        rows += `<tr>
+        const cls = rowClass(obj);
+        rows += `<tr class="row-hover ${cls}" data-row="doc|${name}">
           <td>${name}</td>
-          <td>${escapeHtml(obj?.raw_value)}</td>
-          <td>${escapeHtml(obj?.normalized_value)}</td>
-          <td>${escapeHtml(obj?.unit)}</td>
-          <td>${escapeHtml(obj?.normalized_unit)}</td>
-          <td>${obj?.required_review ? 'true' : 'false'}</td>
-          <td>${escapeHtml(obj?.review_notes)}</td>
+          <td>${cellView(obj?.raw_value)}${inputEl(obj?.raw_value, `document_fields|${name}|raw_value`)}</td>
+          <td>${cellView(obj?.normalized_value)}${inputEl(obj?.normalized_value, `document_fields|${name}|normalized_value`)}</td>
+          <td>${cellView(obj?.unit)}${inputEl(obj?.unit, `document_fields|${name}|unit`)}</td>
+          <td>${cellView(obj?.normalized_unit)}${inputEl(obj?.normalized_unit, `document_fields|${name}|normalized_unit`)}</td>
+          <td>${cellView(obj?.review_notes, true)}${textareaEl(obj?.review_notes, `document_fields|${name}|review_notes`)}</td>
         </tr>`;
       }
-      return `<table>
-        <thead><tr><th>Field</th><th>Raw</th><th>Normalized</th><th>Unit</th><th>Normalized Unit</th><th>Review?</th><th>Review Notes</th></tr></thead>
+      return `<table class="data-table">
+        <colgroup>
+          <col class="doc-field" />
+          <col class="doc-val" />
+          <col class="doc-val" />
+          <col class="doc-unit" />
+          <col class="doc-unit" />
+          <col class="doc-notes" />
+        </colgroup>
+        <thead><tr>
+          <th>Field</th>
+          <th>Raw Value</th>
+          <th>Value</th>
+          <th>Raw Unit</th>
+          <th>Unit</th>
+          <th>Review Notes</th>
+        </tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     }
@@ -83,23 +584,43 @@
         return '<div class="muted">No items.</div>';
       }
       return items.map((item, idx) => {
-        const fields = item.fields || {};
+        const fields = { ...(item.fields || {}) };
+        const itemNameVal = fields.item_name && typeof fields.item_name === "object" ? fields.item_name.value : item.item_name;
+        delete fields.item_name;
         let rows = '';
         for (const [name, obj] of Object.entries(fields)) {
-          rows += `<tr>
+          const cls = rowClass(obj);
+          rows += `<tr class="row-hover ${cls}" data-row="item|${idx}|${name}">
             <td>${name}</td>
-            <td>${escapeHtml(obj?.raw_value)}</td>
-            <td>${escapeHtml(obj?.normalized_value)}</td>
-            <td>${escapeHtml(obj?.unit)}</td>
-            <td>${escapeHtml(obj?.normalized_unit)}</td>
-            <td>${obj?.required_review ? 'true' : 'false'}</td>
-            <td>${escapeHtml(obj?.review_notes)}</td>
+            <td>${cellView(obj?.raw_value)}${inputEl(obj?.raw_value, `items|${idx}|fields|${name}|raw_value`)}</td>
+            <td>${cellView(obj?.normalized_value)}${inputEl(obj?.normalized_value, `items|${idx}|fields|${name}|normalized_value`)}</td>
+            <td>${cellView(obj?.unit)}${inputEl(obj?.unit, `items|${idx}|fields|${name}|unit`)}</td>
+            <td>${cellView(obj?.normalized_unit)}${inputEl(obj?.normalized_unit, `items|${idx}|fields|${name}|normalized_unit`)}</td>
+            <td>${cellView(obj?.review_notes, true)}${textareaEl(obj?.review_notes, `items|${idx}|fields|${name}|review_notes`)}</td>
           </tr>`;
         }
-        return `<div class="panel" style="padding:12px; margin:8px 0; box-shadow:none; border:1px solid #e5e7eb;">
-          <div style="font-weight:700; margin-bottom:6px;">Item ${idx + 1}</div>
-          ${rows ? `<table>
-            <thead><tr><th>Field</th><th>Raw</th><th>Normalized</th><th>Unit</th><th>Normalized Unit</th><th>Review?</th><th>Review Notes</th></tr></thead>
+        const itemName = itemNameVal && String(itemNameVal).trim() ? escapeHtml(String(itemNameVal)) : `Item ${idx + 1}`;
+        return `<div class="item-card">
+          <div style="font-weight:700; margin-bottom:6px;">${itemName}
+            <input class="field-input item-name-input" data-path="items|${idx}|fields|item_name|value" value="${escapeHtml(itemNameVal ?? "")}" />
+          </div>
+          ${rows ? `<table class="data-table">
+            <colgroup>
+              <col class="w-field" />
+              <col class="w-raw" />
+              <col class="w-norm" />
+              <col class="w-unit" />
+              <col class="w-nunit" />
+              <col class="w-notes" />
+            </colgroup>
+            <thead><tr>
+              <th>Field</th>
+              <th>Raw Value</th>
+              <th>Value</th>
+              <th>Raw Unit</th>
+              <th>Unit</th>
+              <th>Review Notes</th>
+            </tr></thead>
             <tbody>${rows}</tbody>
           </table>` : '<div class="muted">No fields.</div>'}
         </div>`;
@@ -116,17 +637,131 @@
         .replace(/'/g, '&#39;');
     }
 
+    function onEdit(event) {
+      const target = event.target;
+      if (!target.dataset?.path) return;
+      if (!currentExtraction) return;
+      const path = target.dataset.path;
+      const type = target.dataset.type;
+      let value = target.value;
+      if (type === "bool") {
+        value = value === "true";
+      }
+      updateExtraction(path, value);
+      const cell = target.previousElementSibling;
+      if (cell && cell.classList.contains("cell-view")) {
+        const isNote = target.dataset.note === "true";
+        const display = isNote && value.length > 140 ? value.slice(0, 140) + "..." : value;
+        cell.textContent = display ?? "";
+      }
+      if (target.tagName === "TEXTAREA") {
+        resizeTextareas(target.parentElement?.parentElement || document);
+      }
+      saveExtraction();
+    }
+
+    function toggleRowEdit(event) {
+      const row = event.target.closest("tr");
+      if (!row || !row.dataset?.row) return;
+      // avoid toggling when clicking inside an input/select/textarea
+      const tag = event.target.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      const editing = row.classList.toggle("editing");
+      if (!editing) {
+        syncRowViews(row);
+      } else {
+        expandRow(row);
+      }
+    }
+
+    function syncRowViews(row) {
+      const inputs = row.querySelectorAll(".field-input");
+      inputs.forEach((input) => {
+        const cell = input.previousElementSibling;
+        if (cell && cell.classList.contains("cell-view")) {
+          const val = input.value ?? "";
+          const isNote = input.dataset.note === "true";
+          const display = isNote && val.length > 140 ? val.slice(0, 140) + "..." : val;
+          cell.textContent = display;
+        }
+      });
+      row.style.height = "";
+    }
+
+    function expandRow(row) {
+      // allow natural height by clearing any inline height and letting textarea grow
+      row.style.height = "auto";
+      resizeTextareas(row);
+    }
+
+    function resizeTextareas(scope) {
+      const list = scope.querySelectorAll("textarea.field-input");
+      list.forEach((el) => {
+        el.style.height = "auto";
+        el.style.height = `${el.scrollHeight}px`;
+      });
+    }
+
+    function updateExtraction(path, value) {
+      if (!currentExtraction) return;
+      const parts = path.split("|");
+      let node = currentExtraction;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const key = parts[i];
+        const nextKey = parts[i + 1];
+        const isIndex = /^\d+$/.test(nextKey);
+        if (node[key] === undefined) {
+          node[key] = isIndex ? [] : {};
+        }
+        node = node[key];
+      }
+      node[parts[parts.length - 1]] = value;
+    }
+
+    function rowClass(obj) {
+      const needsReview = obj?.required_review === true;
+      const rawMissing = obj?.raw_value === null || obj?.raw_value === undefined;
+      const normMissing = obj?.normalized_value === null || obj?.normalized_value === undefined;
+      if (rawMissing && normMissing && obj?.required_review === false) {
+        return "row-missing";
+      }
+      if (needsReview) {
+        return "row-review";
+      }
+      return "";
+    }
+
+    async function doSaveExtraction() {
+      if (!currentDocId || !currentExtraction) return;
+      setStatus('Saving...');
+      try {
+        const res = await fetch(`http://localhost:8000/documents/${currentDocId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ extraction: currentExtraction }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Save failed: ${res.status} ${text}`);
+        }
+        setStatus('Saved');
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Error saving.', true);
+      }
+    }
+
     async function upload() {
       const file = fileInput.files[0];
       if (!file) {
-        setStatus('Please select a PDF to upload.', true);
+        setStatus('Please select a file to upload.', true);
         return;
       }
       uploadBtn.disabled = true;
-      setStatus('Uploading and extracting…');
+      const prog = startProgress();
+      setStatus('Uploading and extracting...');
       docFieldsEl.innerHTML = '';
       itemsEl.innerHTML = '';
-      rawJsonEl.textContent = '';
 
       const form = new FormData();
       form.append('file', file);
@@ -141,21 +776,39 @@
           throw new Error(`Request failed: ${res.status} ${text}`);
         }
         const data = await res.json();
-        rawJsonEl.textContent = JSON.stringify(data, null, 2);
-
-        const extraction = data.extraction || {};
-        docFieldsEl.innerHTML = renderFieldTable(extraction.document_fields);
-        itemsEl.innerHTML = renderItems(extraction.items);
-        setStatus('Done.');
+        currentDocId = data.id;
+        currentExtraction = data.extraction || {};
+        docFieldsEl.innerHTML = renderFieldTable(currentExtraction.document_fields);
+        itemsEl.innerHTML = renderItems(currentExtraction.items);
+        if (prog) prog.complete();
+        setTimeout(() => {
+          setStatus(`Loaded doc #${currentDocId}`);
+        }, 500);
       } catch (err) {
         console.error(err);
+        if (prog) prog.complete();
         setStatus(err.message || 'Error uploading.', true);
       } finally {
         uploadBtn.disabled = false;
       }
     }
 
-    uploadBtn.addEventListener('click', upload);
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      fileNameEl.textContent = file ? file.name : 'No file selected';
+      if (file) {
+        await upload();
+      }
+    });
+
+    docFieldsEl.addEventListener('input', onEdit);
+    docFieldsEl.addEventListener('change', onEdit);
+    docFieldsEl.addEventListener('click', toggleRowEdit);
+    itemsEl.addEventListener('input', onEdit);
+    itemsEl.addEventListener('change', onEdit);
+    itemsEl.addEventListener('click', toggleRowEdit);
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    loadPrevBtn.addEventListener('click', loadMostRecent);
   </script>
 </body>
 </html>

@@ -1,11 +1,11 @@
 """
 Things to do:
-- [] Implement support for multiple file uploads at once (send one at a time to GPT)
-- [] Store Json results in a database (e.g. SQLite) for later retrieval and analysis
-- [] Allow user ability to edit the data extracted by ChatGPT in case of errors
-- [] Store copy of PDF in the cloud
+- [X] Implement support for multiple file uploads at once (send one at a time to GPT)
+- [X] Store Json results in a database (e.g. SQLite) for later retrieval and analysis
+- [X] Allow user ability to edit the data extracted by ChatGPT in case of errors
+- [X] Store copy of PDF in the cloud
 - [] (Maybe) Allow user to select which variables to extract, or even create their own
-- [] Frontend interface should work on green yellow red tier of confidence values 
+- [X] Frontend interface should work on green yellow red tier of confidence values 
     - It knows what its doing green
     - (11 x 15 --> No response should be an assumption and yellow with a note)
     - Couldnt find at all is red
@@ -18,12 +18,13 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Generator, Optional, Tuple
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from functools import lru_cache
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 try:
     from dotenv import load_dotenv
@@ -55,6 +56,74 @@ UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "SystemPrompt.md"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
+
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
+
+
+class Document(SQLModel, table=True):
+    """Stored upload + extraction record."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    filename: str
+    stored_filename: str
+    storage_path: str
+    uploaded_at: datetime
+    pdf_size_bytes: int
+    ocr_method: Optional[str] = None
+    ocr_worked: bool = True
+    extraction_json: str
+
+
+class DocumentUpdate(SQLModel):
+    """Payload to update stored extraction data or filename."""
+    filename: Optional[str] = None
+    extraction: Optional[dict] = None
+
+
+class DocumentResponse(SQLModel):
+    """Response model for stored documents with parsed extraction."""
+    id: int
+    filename: str
+    stored_filename: str
+    storage_path: str
+    uploaded_at: datetime
+    pdf_size_bytes: int
+    ocr_method: Optional[str] = None
+    ocr_worked: bool
+    extraction: dict
+
+
+def init_db() -> None:
+    """Create tables if they do not yet exist."""
+    SQLModel.metadata.create_all(engine)
+
+
+def get_session() -> Generator[Session, None, None]:
+    """Provide a SQLModel session."""
+    with Session(engine) as session:
+        yield session
+
+
+def _document_to_response(doc: Document) -> DocumentResponse:
+    """Convert a stored Document into a response model."""
+    try:
+        extraction = json.loads(doc.extraction_json)
+    except Exception:
+        extraction = {}
+    return DocumentResponse(
+        id=doc.id,  # type: ignore[arg-type]
+        filename=doc.filename,
+        stored_filename=doc.stored_filename,
+        storage_path=doc.storage_path,
+        uploaded_at=doc.uploaded_at,
+        pdf_size_bytes=doc.pdf_size_bytes,
+        ocr_method=doc.ocr_method,
+        ocr_worked=doc.ocr_worked,
+        extraction=extraction,
+    )
+
+
 app = FastAPI(title="EncargoAI Backend")
 
 # Allow local HTML page to call the API from another origin/port
@@ -194,30 +263,46 @@ def _call_chatgpt(file_path: Path, metadata: dict) -> dict:
             pass
 
 
-@app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-    """Accept a PDF upload, store it, run OCR/text extraction, and return metadata."""
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files allowed")
+@app.on_event("startup")
+def _startup() -> None:
+    """Initialize database on startup."""
+    init_db()
+
+
+@app.post("/upload", response_model=DocumentResponse)
+async def upload_pdf(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    """Accept a file upload, store it, run extraction via ChatGPT, and persist result."""
 
     timestamp = datetime.utcnow().isoformat()
-    file_path = UPLOAD_DIR / file.filename
+    suffix = Path(file.filename).suffix or ""
+    safe_stem = Path(file.filename).stem or "upload"
+    stored_name = file.filename
+    file_path = UPLOAD_DIR / stored_name
+    if file_path.exists():
+        stored_name = f"{safe_stem}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}{suffix}"
+        file_path = UPLOAD_DIR / stored_name
 
     # write file out
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
 
-    text, method = await asyncio.to_thread(_extract_text_from_pdf, file_path)
-    if not text:
-        raise HTTPException(
-            status_code=422,
-            detail="Unable to extract text from PDF. Install OCR dependencies for scanned documents.",
-        )
+    is_pdf = suffix.lower() == ".pdf"
+    text = ""
+    method = None
+    if is_pdf:
+        text, method = await asyncio.to_thread(_extract_text_from_pdf, file_path)
+        if not text:
+            raise HTTPException(
+                status_code=422,
+                detail="Unable to extract text from PDF. Install OCR dependencies for scanned documents.",
+            )
+    else:
+        method = "skipped (non-PDF)"
 
     # run ChatGPT
     preliminary = {
-        "filename": file.filename,
+        "filename": stored_name,
         "uploaded_at": timestamp,
         "pdf_size_bytes": file_path.stat().st_size,
     }
@@ -231,13 +316,30 @@ async def upload_pdf(file: UploadFile = File(...)):
     }
     pretty = json.dumps(payload, indent=2)
     print(pretty)
-    return Response(content=pretty, media_type="application/json")
+
+    doc = Document(
+        filename=file.filename,
+        stored_filename=stored_name,
+        storage_path=str(file_path),
+        uploaded_at=datetime.fromisoformat(timestamp),
+        pdf_size_bytes=file_path.stat().st_size,
+        ocr_method=method,
+        ocr_worked=bool(text),
+        extraction_json=json.dumps(results),
+    )
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+    return _document_to_response(doc)
 
 
 @app.post("/ocr")
 async def ocr(file_name: str):
     """Run OCR/text extraction against an uploaded PDF and return text + word count."""
     file_path = _get_uploaded_path(file_name)
+    if not file_name.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="OCR endpoint only supports PDF files.")
+
     text, method = await asyncio.to_thread(_extract_text_from_pdf, file_path)
     if not text:
         raise HTTPException(
@@ -263,9 +365,60 @@ async def ocr(file_name: str):
     return Response(content=pretty, media_type="application/json")
 
 
+@app.get("/documents", response_model=list[DocumentResponse])
+def list_documents(session: Session = Depends(get_session)):
+    """List stored documents and their parsed extractions."""
+    docs = session.exec(select(Document).order_by(Document.uploaded_at.desc())).all()
+    return [_document_to_response(doc) for doc in docs]
+
+
+@app.get("/documents/{document_id}", response_model=DocumentResponse)
+def get_document(document_id: int, session: Session = Depends(get_session)):
+    """Fetch a single stored document."""
+    doc = session.get(Document, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return _document_to_response(doc)
+
+
+@app.put("/documents/{document_id}", response_model=DocumentResponse)
+def update_document(document_id: int, payload: DocumentUpdate, session: Session = Depends(get_session)):
+    """Update filename or extraction JSON for a stored document."""
+    doc = session.get(Document, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if payload.filename:
+        doc.filename = payload.filename
+    if payload.extraction is not None:
+        doc.extraction_json = json.dumps(payload.extraction)
+
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+    return _document_to_response(doc)
+
+
+@app.delete("/documents/{document_id}")
+def delete_document(document_id: int, session: Session = Depends(get_session)):
+    """Delete a stored document and its file copy."""
+    doc = session.get(Document, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # best-effort cleanup of stored PDF
+    try:
+        Path(doc.storage_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    session.delete(doc)
+    session.commit()
+    return {"status": "deleted", "id": document_id}
+
+
 @app.post("/chat")
 async def chat_with_gpt(prompt: str):
     """Placeholder for ChatGPT API integration."""
     # TODO: call OpenAI API with provided prompt
     return {"status": "not implemented", "prompt": prompt}
-

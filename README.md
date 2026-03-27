@@ -21,6 +21,8 @@ By default the API will be available at `http://127.0.0.1:8000`.
 
 Browse [`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs) for automatically generated OpenAPI/Swagger UI.
 
+The service persists extracted data to a database. It defaults to SQLite at `./data.db`; override with `DATABASE_URL` (e.g. Render Postgres) if desired.
+
 
 ## API Endpoints
 
@@ -36,5 +38,4 @@ Set-Location -Path 'C:\Projects\EncargoAI'   # or wherever your clone is
 ## 📁 File Storage
 
 Uploaded PDFs are written to the `backend/uploads/` directory.  Ensure that the service has write permissions.
-
 

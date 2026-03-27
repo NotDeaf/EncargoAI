@@ -32,6 +32,7 @@ Field mapping guidance:
 - order_date: document date or order date only if clearly present
 
 Item-level guidance:
+- item_name is required for every item. Set item_name.value to a concise product/line descriptor sourced from the item text. If the document does not label the item explicitly, use the best available description from the row/line. Do not return null for item_name unless there is truly no item text; in that case still include item_name with value null and explain in the item’s review_notes of another field.
 - price_per_unit: per-item or per-unit monetary amount, not line total unless clearly the same because quantity is 1
 - delivery_date: expected delivery date, not ship date
 - shipping_date: ship or dispatch date, not delivery date
@@ -58,10 +59,47 @@ Validation rules:
 - If a value does not match the expected type or format, keep raw_value if present, set normalized_value to null, and explain why in review_notes.
 - Return only fields that are requested by the schema below.
 
+
+Ambiguity Rules:
+- These apply to cases like 11 x 15 IN and length and width are not specifically labeled
+- Parse the numeric values and unit
+- Assign values by position:
+- Two values → first = length, second = width
+- Three values → first = length, second = width, third = height
+- Set each field’s raw_value to the individual extracted value (e.g., "11 IN", "15 IN"), not the full combined string
+- Set unit consistently across fields if shared
+- Set required_review to true for all derived dimension fields
+- Include a review_notes explanation stating positional assignment was assumed due to lack of explicit labels
+
+
 Output schema:
 {
   "document_fields": {
-    "<document_field_name>": {
+    "vendor_name": {
+      "raw_value": null,
+      "unit": null,
+      "normalized_value": null,
+      "normalized_unit": null,
+      "required_review": false,
+      "review_notes": null
+    },
+    "purchase_order_number": {
+      "raw_value": null,
+      "unit": null,
+      "normalized_value": null,
+      "normalized_unit": null,
+      "required_review": false,
+      "review_notes": null
+    },
+    "invoice_number": {
+      "raw_value": null,
+      "unit": null,
+      "normalized_value": null,
+      "normalized_unit": null,
+      "required_review": false,
+      "review_notes": null
+    },
+    "order_date": {
       "raw_value": null,
       "unit": null,
       "normalized_value": null,
@@ -73,7 +111,106 @@ Output schema:
   "items": [
     {
       "fields": {
-        "<item_field_name>": {
+        "item_name": {
+          "value": null
+        },
+        "price_per_unit": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "delivery_date": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "shipping_date": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "tracking_number": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "length": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "width": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "height": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "density": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "quantity": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "quality": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "minimum_quantity": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "weight": {
+          "raw_value": null,
+          "unit": null,
+          "normalized_value": null,
+          "normalized_unit": null,
+          "required_review": false,
+          "review_notes": null
+        },
+        "volume": {
           "raw_value": null,
           "unit": null,
           "normalized_value": null,
@@ -93,6 +230,7 @@ Document-level fields to extract:
 - order_date
 
 Item-level fields to extract for each item:
+- item_name
 - price_per_unit
 - delivery_date
 - shipping_date
