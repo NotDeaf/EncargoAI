@@ -35,6 +35,7 @@ htmlcov/
 
 # App data
 backend/uploads/
+backend/poppler-*/
 
 # Editors / IDE
 .vscode/

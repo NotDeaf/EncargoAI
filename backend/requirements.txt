@@ -8,3 +8,6 @@ pdf2image
 openai
 python-dotenv
 sqlmodel
+docx2pdf
+pywin32
+poppler-utils

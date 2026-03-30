@@ -322,10 +322,28 @@
       box-shadow: var(--shadow-soft);
     }
 
+    .item-name-block {
+      font-weight: 700;
+      margin-bottom: 8px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .item-name-view {
+      font-size: 14px;
+      cursor: pointer;
+    }
+
     .item-name-input {
-      max-width: 240px;
-      display: inline-block;
-      margin-left: 8px;
+      max-width: none;
+      width: 100%;
+      display: none;
+      margin: 0;
+      font-weight: 700;
+      background: hsl(var(--secondary));
+      border: 1px solid hsl(var(--input));
+      padding: 8px 10px;
+      border-radius: calc(var(--radius) / 3);
     }
 
     .field-input, textarea.field-input, select.field-input {
@@ -462,15 +480,35 @@
           return;
         }
         const doc = docs[0]; // already sorted desc in API
-        currentDocId = doc.id;
-        currentExtraction = doc.extraction || {};
-        docFieldsEl.innerHTML = renderFieldTable(currentExtraction.document_fields);
-        itemsEl.innerHTML = renderItems(currentExtraction.items);
-        setStatus(`Loaded doc #${currentDocId}`);
+        hydrateDoc(doc);
       } catch (err) {
         console.error(err);
         setStatus(err.message || 'Error loading document.', true);
       }
+    }
+
+    async function loadById(docId) {
+      setStatus(`Loading document #${docId}...`);
+      try {
+        const res = await fetch(`http://localhost:8000/documents/${docId}`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Request failed: ${res.status} ${text}`);
+        }
+        const doc = await res.json();
+        hydrateDoc(doc);
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || `Error loading document #${docId}.`, true);
+      }
+    }
+
+    function hydrateDoc(doc) {
+      currentDocId = doc.id;
+      currentExtraction = doc.extraction || {};
+      docFieldsEl.innerHTML = renderFieldTable(currentExtraction.document_fields);
+      itemsEl.innerHTML = renderItems(currentExtraction.items);
+      setStatus(`Loaded doc #${currentDocId}${doc.filename ? ' • ' + doc.filename : ''}`);
     }
 
     function setStatus(text, isError = false) {
@@ -585,8 +623,13 @@
       }
       return items.map((item, idx) => {
         const fields = { ...(item.fields || {}) };
-        const itemNameVal = fields.item_name && typeof fields.item_name === "object" ? fields.item_name.value : item.item_name;
-        delete fields.item_name;
+        const itemNameVal =
+          fields.item_name?.normalized_value ??
+          fields.item_name?.value ??
+          fields.item_name?.raw_value ??
+          item.item_name ??
+          `Item ${idx + 1}`;
+        delete fields.item_name; // don't render item_name twice
         let rows = '';
         for (const [name, obj] of Object.entries(fields)) {
           const cls = rowClass(obj);
@@ -599,10 +642,11 @@
             <td>${cellView(obj?.review_notes, true)}${textareaEl(obj?.review_notes, `items|${idx}|fields|${name}|review_notes`)}</td>
           </tr>`;
         }
-        const itemName = itemNameVal && String(itemNameVal).trim() ? escapeHtml(String(itemNameVal)) : `Item ${idx + 1}`;
+        const itemName = itemNameVal && String(itemNameVal).trim() ? String(itemNameVal) : `Item ${idx + 1}`;
         return `<div class="item-card">
-          <div style="font-weight:700; margin-bottom:6px;">${itemName}
-            <input class="field-input item-name-input" data-path="items|${idx}|fields|item_name|value" value="${escapeHtml(itemNameVal ?? "")}" />
+          <div class="item-name-block">
+            <div class="cell-view item-name-view" data-name-path="items|${idx}|fields|item_name|value">${escapeHtml(itemName)}</div>
+            <input class="field-input item-name-input" data-path="items|${idx}|fields|item_name|value" value="${escapeHtml(itemName)}" />
           </div>
           ${rows ? `<table class="data-table">
             <colgroup>
@@ -663,14 +707,18 @@
     function toggleRowEdit(event) {
       const row = event.target.closest("tr");
       if (!row || !row.dataset?.row) return;
+      if (event.target.classList.contains("item-name-input") || event.target.classList.contains("item-name-view")) return;
       // avoid toggling when clicking inside an input/select/textarea
       const tag = event.target.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      const editing = row.classList.toggle("editing");
-      if (!editing) {
-        syncRowViews(row);
-      } else {
+      const willEdit = !row.classList.contains("editing");
+      if (willEdit) {
+        closeAllEditors();
+        row.classList.add("editing");
         expandRow(row);
+      } else {
+        syncRowViews(row);
+        row.classList.remove("editing");
       }
     }
 
@@ -807,8 +855,100 @@
     itemsEl.addEventListener('input', onEdit);
     itemsEl.addEventListener('change', onEdit);
     itemsEl.addEventListener('click', toggleRowEdit);
+    itemsEl.addEventListener('click', (event) => {
+      const target = event.target;
+      if (target.classList.contains('item-name-view')) {
+        const input = target.nextElementSibling;
+        if (input && input.classList.contains('item-name-input')) {
+          closeAllEditors(input);
+          target.style.display = 'none';
+          input.style.display = 'block';
+          input.focus();
+          input.select();
+        }
+      }
+    });
+    itemsEl.addEventListener('blur', (event) => {
+      const target = event.target;
+      if (target.classList.contains('item-name-input')) {
+        const view = target.previousElementSibling;
+        if (view && view.classList.contains('item-name-view')) {
+          const val = target.value || '';
+          view.textContent = val;
+          view.style.display = 'block';
+          target.style.display = 'none';
+        }
+        closeAllEditors();
+      }
+    }, true);
+
+    function closeRow(row) {
+      syncRowViews(row);
+      row.classList.remove('editing');
+    }
+
+    function closeAllRows() {
+      const openRows = document.querySelectorAll('tr.editing');
+      openRows.forEach((r) => closeRow(r));
+    }
+
+    function resetItemNameInputs(exceptInput) {
+      const inputs = document.querySelectorAll('.item-name-input');
+      inputs.forEach((input) => {
+        if (exceptInput && input === exceptInput) return;
+        const view = input.previousElementSibling;
+        if (view && view.classList.contains('item-name-view')) {
+          view.textContent = input.value || '';
+          view.style.display = 'block';
+          input.style.display = 'none';
+        }
+      });
+    }
+
+    function closeAllEditors(exceptNameInput) {
+      closeAllRows();
+      resetItemNameInputs(exceptNameInput);
+    }
+
+    function handleEnterToClose(event) {
+      const target = event.target;
+      if (!target.classList.contains('field-input')) return;
+      if (event.key !== 'Enter') return;
+      if (target.tagName === 'TEXTAREA' && event.shiftKey) return; // allow Shift+Enter for newlines
+      event.preventDefault();
+      const row = target.closest('tr');
+      if (row) {
+        closeRow(row);
+      }
+      closeAllEditors();
+      target.blur();
+    }
+
+    function handleBlurToClose(event) {
+      const target = event.target;
+      if (!target.classList.contains('field-input')) return;
+      const row = target.closest('tr');
+      if (row && row.classList.contains('editing')) {
+        closeRow(row);
+      }
+      closeAllEditors();
+    }
+
+    docFieldsEl.addEventListener('keydown', handleEnterToClose, true);
+    itemsEl.addEventListener('keydown', handleEnterToClose, true);
+    docFieldsEl.addEventListener('blur', handleBlurToClose, true);
+    itemsEl.addEventListener('blur', handleBlurToClose, true);
     uploadBtn.addEventListener('click', () => fileInput.click());
     loadPrevBtn.addEventListener('click', loadMostRecent);
+
+    // Auto-load ?id=NN from query string to mimic "Load Previous" but targeted
+    (function autoLoadFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('id');
+      if (id) {
+        loadById(id);
+      }
+    })();
   </script>
 </body>
 </html>
