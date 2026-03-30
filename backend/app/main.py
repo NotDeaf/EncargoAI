@@ -91,12 +91,14 @@ class Document(SQLModel, table=True):
     ocr_method: Optional[str] = None
     ocr_worked: bool = True
     extraction_json: str
+    saved: bool = Field(default=False)
 
 
 class DocumentUpdate(SQLModel):
     """Payload to update stored extraction data or filename."""
     filename: Optional[str] = None
     extraction: Optional[dict] = None
+    saved: Optional[bool] = None
 
 
 class DocumentResponse(SQLModel):
@@ -110,6 +112,7 @@ class DocumentResponse(SQLModel):
     ocr_method: Optional[str] = None
     ocr_worked: bool
     extraction: dict
+    saved: bool
 
 
 def init_db() -> None:
@@ -139,6 +142,7 @@ def _document_to_response(doc: Document) -> DocumentResponse:
         ocr_method=doc.ocr_method,
         ocr_worked=doc.ocr_worked,
         extraction=extraction,
+        saved=bool(getattr(doc, "saved", False)),
     )
 
 
@@ -446,6 +450,7 @@ async def upload_pdf(file: UploadFile = File(...), session: Session = Depends(ge
         ocr_method=method,
         ocr_worked=bool(text),
         extraction_json=json.dumps(results),
+        saved=False,
     )
     session.add(doc)
     session.commit()
@@ -533,6 +538,8 @@ def update_document(document_id: int, payload: DocumentUpdate, session: Session 
         doc.filename = payload.filename
     if payload.extraction is not None:
         doc.extraction_json = json.dumps(payload.extraction)
+    if payload.saved is not None:
+        doc.saved = bool(payload.saved)
 
     session.add(doc)
     session.commit()

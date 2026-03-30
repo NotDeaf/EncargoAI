@@ -51,12 +51,20 @@
 
     * { box-sizing: border-box; }
 
-    body {
+    html, body {
       margin: 0;
       font-family: Inter, system-ui, -apple-system, sans-serif;
       background: radial-gradient(circle at 10% 20%, hsl(210 78% 96%), hsl(210 78% 98%)), hsl(var(--background));
       color: hsl(var(--foreground));
       min-height: 100vh;
+      overflow: auto;
+      scrollbar-width: none;       /* Firefox */
+      -ms-overflow-style: none;    /* IE/Edge legacy */
+    }
+
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      display: none;               /* Chrome/Safari */
     }
 
     .page {
@@ -402,6 +410,26 @@
       display: none;
     }
 
+    .floating-save {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 10;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 999px;
+      background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
+      color: hsl(var(--primary-foreground));
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      box-shadow: var(--shadow-elevated);
+      cursor: pointer;
+    }
+
+    .floating-save.danger {
+      background: linear-gradient(135deg, hsl(var(--destructive)), hsl(var(--warning)));
+    }
+
     @media (max-width: 920px) {
       .layout { width: 100%; }
       header { width: 100%; }
@@ -412,32 +440,18 @@
   <div class="page">
     <header>
       <div class="brand">
-        <div class="eyebrow">EncargoAI - Extraction Preview</div>
-        <h1>Upload, extract, and review your PDF data</h1>
-        <div class="pill">API: http://localhost:8000/upload</div>
+        <!-- <div class="eyebrow">EncargoAI - Extraction Preview</div> -->
+        <h1>Review and edit your extracted data</h1>
+        <!-- <div class="pill">Editor API: http://localhost:8000/documents/{id}</div> -->
       </div>
-      <div class="pill" id="status"></div>
+      <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+        <button id="backBtn" class="ghost" type="button">Back to Library</button>
+        <div class="pill" id="status"></div>
+      </div>
     </header>
 
     <div class="layout">
       <div class="stack">
-        <div class="card">
-          <div class="section-title">Upload PDF</div>
-          <label for="fileInput">Select a PDF to send to the backend</label>
-          <div class="control-row">
-            <input id="fileInput" class="file-input" type="file" />
-            <button id="uploadBtn">Upload &amp; Extract</button>
-            <button id="loadPrevBtn" type="button">Load Previous</button>
-          </div>
-          <div style="margin-top:8px;">
-            <span id="fileName" class="file-name">No file selected</span>
-          </div>
-          <div class="progress-shell" aria-label="Upload progress">
-            <div id="progressBar" class="progress-bar"></div>
-          </div>
-          <div class="panel-lite muted">We store a copy of the PDF and persist the extracted JSON in the database.</div>
-        </div>
-
         <div class="card">
           <div class="section-title">Document Fields</div>
           <div id="docFields"></div>
@@ -450,20 +464,20 @@
 
       </div>
     </div>
+
+    <button id="saveFlagBtn" class="floating-save danger" type="button">Mark Unsaved</button>
   </div>
 
   <script>
-    const fileInput = document.getElementById("fileInput");
-    const uploadBtn = document.getElementById("uploadBtn");
-    const loadPrevBtn = document.getElementById("loadPrevBtn");
     const statusEl = document.getElementById("status");
+    const backBtn = document.getElementById("backBtn");
+    const saveFlagBtn = document.getElementById("saveFlagBtn");
     const docFieldsEl = document.getElementById("docFields");
     const itemsEl = document.getElementById("items");
-    const fileNameEl = document.getElementById("fileName");
-    const progressBar = document.getElementById("progressBar");
 
     let currentDocId = null;
     let currentExtraction = null;
+    let currentSaved = false;
     const saveExtraction = debounce(doSaveExtraction, 500);
 
     async function loadMostRecent() {
@@ -506,9 +520,11 @@
     function hydrateDoc(doc) {
       currentDocId = doc.id;
       currentExtraction = doc.extraction || {};
+      currentSaved = doc.saved === true;
       docFieldsEl.innerHTML = renderFieldTable(currentExtraction.document_fields);
       itemsEl.innerHTML = renderItems(currentExtraction.items);
       setStatus(`Loaded doc #${currentDocId}${doc.filename ? ' • ' + doc.filename : ''}`);
+      updateSaveButton();
     }
 
     function setStatus(text, isError = false) {
@@ -517,36 +533,6 @@
       statusEl.style.color = isError ? 'hsl(var(--destructive-foreground))' : 'hsl(var(--muted-foreground))';
     }
 
-    function startProgress() {
-      if (!progressBar) return;
-      progressBar.style.width = "0%";
-      const start = Date.now();
-      const stepMs = 300;
-      const maxCrawl = 96.5; // never exceed until completion
-      const timer = setInterval(() => {
-        const elapsed = (Date.now() - start) / 1000; // seconds
-        let pct;
-        if (elapsed <= 60) {
-          // first minute to 70%
-          pct = (elapsed / 60) * 70;
-        } else if (elapsed <= 120) {
-          // next minute 70% -> 90%
-          pct = 70 + ((elapsed - 60) / 60) * 20;
-        } else {
-          // slow crawl from 90% up to maxCrawl
-          const crawl = Math.min(maxCrawl - 90, (elapsed - 120) * 0.02); // 0.02% per second (~1% per 50s)
-          pct = 90 + crawl;
-        }
-        pct = Math.min(maxCrawl, pct);
-        progressBar.style.width = `${pct}%`;
-      }, stepMs);
-      return {
-        complete: () => {
-          clearInterval(timer);
-          progressBar.style.width = "100%";
-        },
-      };
-    }
 
     function debounce(fn, delay) {
       let t;
@@ -799,55 +785,6 @@
       }
     }
 
-    async function upload() {
-      const file = fileInput.files[0];
-      if (!file) {
-        setStatus('Please select a file to upload.', true);
-        return;
-      }
-      uploadBtn.disabled = true;
-      const prog = startProgress();
-      setStatus('Uploading and extracting...');
-      docFieldsEl.innerHTML = '';
-      itemsEl.innerHTML = '';
-
-      const form = new FormData();
-      form.append('file', file);
-
-      try {
-        const res = await fetch('http://localhost:8000/upload', {
-          method: 'POST',
-          body: form,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Request failed: ${res.status} ${text}`);
-        }
-        const data = await res.json();
-        currentDocId = data.id;
-        currentExtraction = data.extraction || {};
-        docFieldsEl.innerHTML = renderFieldTable(currentExtraction.document_fields);
-        itemsEl.innerHTML = renderItems(currentExtraction.items);
-        if (prog) prog.complete();
-        setTimeout(() => {
-          setStatus(`Loaded doc #${currentDocId}`);
-        }, 500);
-      } catch (err) {
-        console.error(err);
-        if (prog) prog.complete();
-        setStatus(err.message || 'Error uploading.', true);
-      } finally {
-        uploadBtn.disabled = false;
-      }
-    }
-
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files[0];
-      fileNameEl.textContent = file ? file.name : 'No file selected';
-      if (file) {
-        await upload();
-      }
-    });
 
     docFieldsEl.addEventListener('input', onEdit);
     docFieldsEl.addEventListener('change', onEdit);
@@ -938,8 +875,34 @@
     itemsEl.addEventListener('keydown', handleEnterToClose, true);
     docFieldsEl.addEventListener('blur', handleBlurToClose, true);
     itemsEl.addEventListener('blur', handleBlurToClose, true);
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    loadPrevBtn.addEventListener('click', loadMostRecent);
+    backBtn.addEventListener('click', () => {
+      window.location.href = './home.html';
+    });
+    saveFlagBtn.addEventListener('click', async () => {
+      if (!currentDocId) return;
+      const nextState = !currentSaved;
+      saveFlagBtn.disabled = true;
+      setStatus(nextState ? 'Marking as saved...' : 'Marking as unsaved...');
+      try {
+        const res = await fetch(`http://localhost:8000/documents/${currentDocId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ saved: nextState }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Save flag failed: ${res.status} ${text}`);
+        }
+        currentSaved = nextState;
+        updateSaveButton();
+        setStatus(nextState ? 'Saved' : 'Marked unsaved');
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Error updating saved flag', true);
+      } finally {
+        saveFlagBtn.disabled = false;
+      }
+    });
 
     // Auto-load ?id=NN from query string to mimic "Load Previous" but targeted
     (function autoLoadFromQuery() {
@@ -949,6 +912,17 @@
         loadById(id);
       }
     })();
+
+    function updateSaveButton() {
+      if (!saveFlagBtn) return;
+      if (currentSaved) {
+        saveFlagBtn.textContent = 'Saved';
+        saveFlagBtn.classList.remove('danger');
+      } else {
+        saveFlagBtn.textContent = 'Mark Saved';
+        saveFlagBtn.classList.add('danger');
+      }
+    }
   </script>
 </body>
 </html>

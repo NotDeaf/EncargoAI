@@ -51,12 +51,20 @@
 
     * { box-sizing: border-box; }
 
-    body {
+    html, body {
       margin: 0;
       font-family: Inter, system-ui, -apple-system, sans-serif;
       background: radial-gradient(circle at 10% 20%, hsl(210 78% 96%), hsl(210 78% 98%)), hsl(var(--background));
       color: hsl(var(--foreground));
       min-height: 100vh;
+      overflow: auto;
+      scrollbar-width: none;       /* Firefox */
+      -ms-overflow-style: none;    /* IE/Edge legacy */
+    }
+
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      display: none;               /* Chrome/Safari */
     }
 
     .page {
@@ -190,6 +198,23 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
       gap: 14px;
+    }
+
+    input[type="file"].file-input {
+      display: none;
+    }
+
+    .file-name {
+      display: inline-flex;
+      align-items: center;
+      min-width: 160px;
+      padding: 10px 12px;
+      border-radius: calc(var(--radius) / 2);
+      border: 1px solid hsl(var(--input));
+      background: hsl(var(--card));
+      color: hsl(var(--muted-foreground));
+      font-size: 13px;
+      box-shadow: var(--shadow-soft);
     }
 
     .doc-card {
@@ -440,6 +465,74 @@
       font-weight: 700;
     }
 
+    .progress-shell {
+      width: 100%;
+      height: 10px;
+      background: hsl(var(--secondary));
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid hsl(var(--border));
+      box-shadow: var(--shadow-soft);
+      margin-top: 8px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
+      transition: width 0.3s ease;
+    }
+
+    .dual {
+      display: grid;
+      grid-template-columns: 1fr 1px 1fr;
+      gap: 0;
+      align-items: stretch;
+    }
+
+    .dual .pane {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 12px;
+    }
+
+    .dual .pane:last-child {
+      padding-left: 12px;
+      padding-right: 0;
+    }
+
+    .dual .divider {
+      background: hsl(var(--border));
+      width: 1px;
+      height: 100%;
+      opacity: 0.8;
+    }
+
+    @media (max-width: 900px) {
+      .dual {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .dual .divider {
+        display: none;
+      }
+      .dual .pane {
+        padding: 0;
+      }
+    }
+
+    .panel-lite {
+      margin-top: 12px;
+      background: hsl(var(--secondary));
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      border: 1px solid hsl(var(--border));
+      color: hsl(var(--foreground));
+      font-weight: 600;
+      font-size: 13px;
+    }
+
     @media (max-width: 720px) {
       h1 { font-size: 24px; }
       .doc-head { flex-direction: column; }
@@ -453,11 +546,6 @@
       <div class="eyebrow">EncargoAI</div>
       <h1>Document Library</h1>
       <p class="lede">Browse every document stored in the database. Use this home view to confirm uploads, see OCR status, and peek at extracted fields without opening each record individually.</p>
-      <div class="controls">
-        <button id="refreshBtn" type="button">Refresh list</button>
-        <button class="ghost" id="openPreviewBtn" type="button">Open extraction preview</button>
-        <div class="pill">API base: http://localhost:8000</div>
-      </div>
     </header>
 
     <div class="stats" id="statsRow">
@@ -478,9 +566,26 @@
       </div>
     </div>
 
-    <div class="card search">
-      <input id="searchInput" type="text" placeholder="Filter by filename, stored name, or doc ID..." />
-      <div class="status-text" id="status">Loading documents...</div>
+    <div class="card dual">
+      <div class="pane">
+        <div class="section-title">Filter</div>
+        <input id="searchInput" type="text" placeholder="Filter by filename, stored name, or doc ID..." />
+        <div class="status-text" id="status">Loading documents...</div>
+      </div>
+      <div class="divider"></div>
+      <div class="pane">
+        <div class="section-title">Upload a document</div>
+        <div class="control-row">
+          <input id="homeFileInput" class="file-input" type="file" />
+          <button id="homeUploadBtn" type="button">Choose file &amp; upload</button>
+          <span id="homeFileName" class="file-name">No file selected</span>
+        </div>
+        <div class="status-text" id="homeUploadStatus">Idle</div>
+        <div class="progress-shell">
+          <div class="progress-bar" id="homeProgressBar"></div>
+        </div>
+        <div class="panel-lite">We store a copy of the PDF and persist the extracted JSON in the database.</div>
+      </div>
     </div>
 
     <div class="doc-grid" id="docList"></div>
@@ -491,12 +596,18 @@
     const docList = document.getElementById('docList');
     const statusEl = document.getElementById('status');
     const searchInput = document.getElementById('searchInput');
-    const refreshBtn = document.getElementById('refreshBtn');
-    const openPreviewBtn = document.getElementById('openPreviewBtn');
     const docCount = document.getElementById('docCount');
     const totalSize = document.getElementById('totalSize');
     const coverage = document.getElementById('coverage');
     const latestMeta = document.getElementById('latestMeta');
+    const homeFileInput = document.getElementById('homeFileInput');
+    const homeUploadBtn = document.getElementById('homeUploadBtn');
+    const homeFileName = document.getElementById('homeFileName');
+    const homeUploadStatus = document.getElementById('homeUploadStatus');
+    const homeProgressBar = document.getElementById('homeProgressBar');
+    const UPLOAD_STALE_MS = 5 * 60 * 1000;
+    let uploadState = loadUploadState();
+    let homeProgressTimer = null;
 
     let docs = [];
     const selectedDocs = new Set();
@@ -572,8 +683,9 @@
         fields.quote_date?.normalized_value ||
         "No date";
 
-      const confidence = doc.ocr_worked ? "Verified" : "Needs Review";
-      const confidenceClass = doc.ocr_worked ? "success" : "danger";
+      const isSaved = doc.saved === true;
+      const confidence = isSaved ? "Saved" : "Not Saved";
+      const confidenceClass = isSaved ? "success" : "danger";
 
       const itemList = items.map((item, idx) => {
         const name =
@@ -654,6 +766,9 @@
       const html = list.map(renderDocCard).join('');
       docList.innerHTML = html;
       hydratePreviews();
+      if (isStaleUpload()) {
+        resetUploadState();
+      }
     }
 
     async function loadDocs() {
@@ -680,11 +795,6 @@
       setStatus(`Showing ${filtered.length} of ${docs.length} document${docs.length === 1 ? '' : 's'}.`);
     });
 
-    refreshBtn.addEventListener('click', () => {
-      searchInput.value = '';
-      loadDocs();
-    });
-
     docList.addEventListener('click', (event) => {
       const target = event.target;
 
@@ -700,7 +810,7 @@
       if (target.classList.contains('open-doc')) {
         const docId = target.getAttribute('data-id');
         if (docId) {
-          window.location.href = `./preview.html?id=${docId}`;
+          window.location.href = `./edit.html?id=${docId}`;
         }
         event.stopPropagation();
         return;
@@ -719,8 +829,21 @@
       }
     });
 
-    openPreviewBtn.addEventListener('click', () => {
-      window.location.href = './preview.html';
+    homeUploadBtn.addEventListener('click', () => homeFileInput.click());
+    homeFileInput.addEventListener('change', async () => {
+      const file = homeFileInput.files[0];
+      homeFileName.textContent = file ? file.name : 'No file selected';
+      if (file) {
+        uploadState.fileName = file.name;
+      uploadState.inProgress = true;
+      uploadState.progress = uploadState.progress || 0;
+      uploadState.startedAt = Date.now();
+      persistUploadState();
+      setHomeStatus('Uploading...');
+      startHomeProgress(uploadState.progress || 0, uploadState.startedAt);
+      await uploadFromHome(file);
+        homeFileInput.value = '';
+      }
     });
 
     loadDocs();
@@ -735,6 +858,161 @@
       const previews = Array.from(document.querySelectorAll('.preview[data-preview-url]'));
       previews.forEach(loadPreview);
     }
+
+    async function uploadFromHome(file) {
+      homeUploadBtn.disabled = true;
+      uploadState.inProgress = true;
+      uploadState.fileName = file.name;
+      uploadState.startedAt = uploadState.startedAt || Date.now();
+      persistUploadState();
+      setHomeStatus('Uploading...');
+      startHomeProgress(uploadState.progress || 0, uploadState.startedAt);
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch(`${API_BASE}/upload`, {
+          method: 'POST',
+          body: form,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Upload failed: ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        setHomeStatus(`Uploaded doc #${data.id}`);
+        completeHomeProgress();
+        await loadDocs();
+      } catch (err) {
+        console.error(err);
+        setHomeStatus(err.message || 'Upload failed', true);
+      } finally {
+        homeUploadBtn.disabled = false;
+        uploadState.inProgress = false;
+        uploadState.startedAt = null;
+        persistUploadState();
+      }
+    }
+
+    function setHomeStatus(text, isError = false) {
+      homeUploadStatus.textContent = text;
+      homeUploadStatus.style.background = isError ? 'hsl(var(--destructive) / 0.16)' : 'hsl(var(--secondary))';
+      homeUploadStatus.style.color = isError ? 'hsl(var(--destructive))' : 'hsl(var(--muted-foreground))';
+      homeUploadStatus.style.borderColor = isError ? 'hsl(var(--destructive) / 0.4)' : 'hsl(var(--border))';
+      uploadState.status = text;
+      uploadState.error = isError;
+      persistUploadState();
+    }
+
+    function isStaleUpload() {
+      if (!uploadState.inProgress || !uploadState.startedAt) return false;
+      return Date.now() - uploadState.startedAt > UPLOAD_STALE_MS;
+    }
+
+    function resetUploadState() {
+      uploadState = {
+        status: 'Idle',
+        progress: 0,
+        inProgress: false,
+        error: false,
+        fileName: 'No file selected',
+        startedAt: null,
+      };
+      setHomeStatus(uploadState.status, false);
+      if (homeProgressBar) {
+        homeProgressBar.style.width = '0%';
+      }
+      homeFileName.textContent = uploadState.fileName;
+      persistUploadState();
+    }
+
+    function startHomeProgress(startAt = 0, startedAt = null) {
+      if (!homeProgressBar) return;
+      if (homeProgressTimer) {
+        clearInterval(homeProgressTimer);
+      }
+      const startTime = startedAt || Date.now();
+      uploadState.startedAt = startTime;
+      uploadState.inProgress = true;
+      homeProgressBar.style.width = `${startAt}%`;
+      const stepMs = 300;
+      const maxCrawl = 96.5; // never fully complete until server responds
+      homeProgressTimer = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000; // seconds
+        let pct;
+        if (elapsed <= 60) {
+          // first minute to 70%
+          pct = (elapsed / 60) * 70;
+        } else if (elapsed <= 120) {
+          // next minute 70% -> 90%
+          pct = 70 + ((elapsed - 60) / 60) * 20;
+        } else {
+          // slow crawl from 90% up to maxCrawl
+          const crawl = Math.min(maxCrawl - 90, (elapsed - 120) * 0.02); // 0.02% per second
+          pct = 90 + crawl;
+        }
+        const width = Math.min(maxCrawl, pct);
+        homeProgressBar.style.width = `${width}%`;
+        uploadState.progress = width;
+        persistUploadState();
+      }, stepMs);
+      uploadState.progress = startAt;
+      uploadState.startedAt = startTime;
+      persistUploadState();
+    }
+
+    function completeHomeProgress() {
+      if (!homeProgressBar) return;
+      if (homeProgressTimer) {
+        clearInterval(homeProgressTimer);
+        homeProgressTimer = null;
+      }
+      homeProgressBar.style.width = '100%';
+      uploadState.progress = 100;
+      uploadState.inProgress = false;
+      uploadState.startedAt = null;
+      persistUploadState();
+      setTimeout(() => {
+        homeProgressBar.style.width = '0%';
+        uploadState.progress = 0;
+        uploadState.startedAt = null;
+        persistUploadState();
+      }, 800);
+    }
+
+    function persistUploadState() {
+      try {
+        localStorage.setItem('homeUploadState', JSON.stringify(uploadState));
+      } catch (e) {
+        console.warn('Persist upload state failed', e);
+      }
+    }
+
+    function loadUploadState() {
+      try {
+        const raw = localStorage.getItem('homeUploadState');
+        if (!raw) return { status: 'Idle', progress: 0, inProgress: false, error: false, fileName: 'No file selected', startedAt: null };
+        return JSON.parse(raw);
+      } catch (e) {
+        return { status: 'Idle', progress: 0, inProgress: false, error: false, fileName: 'No file selected', startedAt: null };
+      }
+    }
+
+    // restore upload state on load
+    (function restoreUploadUI() {
+      if (!homeUploadStatus || !homeProgressBar) return;
+      if (isStaleUpload()) {
+        resetUploadState();
+        return;
+      }
+      if (uploadState.fileName) {
+        homeFileName.textContent = uploadState.fileName;
+      }
+      setHomeStatus(uploadState.status || 'Idle', uploadState.error);
+      homeProgressBar.style.width = `${uploadState.progress || 0}%`;
+      if (uploadState.inProgress) {
+        startHomeProgress(uploadState.progress || 0, uploadState.startedAt || Date.now());
+      }
+    })();
   </script>
 </body>
 </html>
