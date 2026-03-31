@@ -560,7 +560,8 @@ function DocCard({
         <button
           className="open-doc"
           onClick={() => {
-            window.location.href = `./edit.html?id=${doc.id}`;
+            const mode = isSaved ? "view" : "edit";
+            window.location.href = `./?mode=${mode}&id=${doc.id}`;
           }}
         >
           {isSaved ? "Open" : "Edit"}
