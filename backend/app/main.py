@@ -554,9 +554,19 @@ def delete_document(document_id: int, session: Session = Depends(get_session)):
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # best-effort cleanup of stored PDF
+    file_path = Path(doc.storage_path)
+    # best-effort cleanup of stored file and generated previews
     try:
-        Path(doc.storage_path).unlink(missing_ok=True)
+        file_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    try:
+        stem = file_path.stem
+        preview_png = PREVIEW_DIR / f"{stem}.preview.png"
+        preview_pdf = PREVIEW_DIR / f"{stem}.preview.pdf"
+        preview_png.unlink(missing_ok=True)
+        preview_pdf.unlink(missing_ok=True)
     except Exception:
         pass
 

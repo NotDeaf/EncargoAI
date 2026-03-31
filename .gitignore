@@ -47,3 +47,9 @@ Thumbs.db
 
 # Temporary scratch files
 TEMP_README_*.txt
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.eslintcache
