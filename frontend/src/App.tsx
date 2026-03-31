@@ -10,8 +10,8 @@ function App() {
 
   const title = isEdit ? "Review and edit your extracted data" : "Document Library";
   const subtitle = isEdit
-    ? ""
-    : "Browse every document stored in the database. Use this home view to confirm uploads, see OCR status, and peek at extracted fields without opening each record individually.";
+    ? "Review extracted fields, edit values, and mark records saved—all in one place."
+    : "Browse uploaded documents, view previews, check saved status, expand line items, upload new files, or delete records directly from the library without opening each one.";
 
   return (
     <>

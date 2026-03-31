@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import logo from "./assets/EncargoAILogo.png";
 
 const headerStyles = `
-  .site-header { position: sticky; top: 0; z-index: 50; width: 100%; backdrop-filter: blur(10px); background: hsl(var(--background, 0 0% 100%) / 0.98); border-bottom: 1px solid hsl(var(--border, 216 20% 90%)); box-shadow: 0 4px 14px -6px hsl(210 78% 15% / 0.15); }
-  .site-header .shell { max-width: 1320px; margin: 0 auto; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .site-header { position: fixed; top: 0; left: 0; right: 0; z-index: 200; width: 100%; backdrop-filter: blur(10px); background: hsl(var(--background, 0 0% 100%) / 0.98); border-bottom: 1px solid hsl(var(--border, 216 20% 90%)); box-shadow: 0 4px 14px -6px hsl(210 78% 15% / 0.15); }
+  .site-header .shell { width: 100%; max-width: none; margin: 0; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; box-sizing: border-box; }
   .site-header .brand-row { display: flex; align-items: center; gap: 12px; text-decoration: none; }
   .site-header .brand-row img { height: 48px; width: auto; transition: transform 0.2s ease; }
   .site-header .brand-row:hover img { transform: translateY(-2px); }

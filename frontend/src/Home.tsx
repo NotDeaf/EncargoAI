@@ -557,8 +557,13 @@ function DocCard({
         <button className="ghost" disabled>
           Compare
         </button>
-        <button className="open-doc" onClick={() => (window.location.href = `./edit.html?id=${doc.id}`)}>
-          Open
+        <button
+          className="open-doc"
+          onClick={() => {
+            window.location.href = `./edit.html?id=${doc.id}`;
+          }}
+        >
+          {isSaved ? "Open" : "Edit"}
         </button>
       </div>
     </div>
